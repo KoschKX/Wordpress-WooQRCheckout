@@ -23,6 +23,7 @@ class WC_QR_Admin {
         // ajax stuff
         add_action('wp_ajax_wc_qr_regenerate', array($this, 'ajax_regenerate_qr'));
         add_action('wp_ajax_wc_qr_generate_single', array($this, 'ajax_generate_single_qr'));
+        add_action('wp_ajax_wc_qr_save_custom_url', array($this, 'ajax_save_custom_url'));
         add_action('wp_ajax_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         add_action('wp_ajax_nopriv_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         
@@ -469,7 +470,14 @@ class WC_QR_Admin {
         $download_link = get_post_meta($product_id, '_qr_download_link', true);
         $product_sku = $product->get_sku();
         $checkout_url = wc_get_checkout_url();
-        $scan_url = !empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : '';
+        
+        // Check if custom URL exists, otherwise use SKU-based URL
+        $custom_url = get_post_meta($product_id, '_qr_custom_url', true);
+        if (!empty($custom_url)) {
+            $scan_url = $custom_url;
+        } else {
+            $scan_url = !empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : '';
+        }
         
         ?>
         <div class="wrap">
@@ -500,8 +508,20 @@ class WC_QR_Admin {
                             
                             <?php if ($scan_url): ?>
                             <div style="background: #f0f0f1; padding: 15px; border-radius: 4px; margin-top: 20px;">
-                                <p style="margin: 0; font-size: 12px; color: #646970;"><strong>Scans to:</strong></p>
-                                <p style="margin: 5px 0 0 0; font-family: monospace; font-size: 11px; word-break: break-all;"><?php echo esc_html($scan_url); ?></p>
+                                <label for="qr-scan-url" style="display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: #1d2327;">Scans to:</label>
+                                <input type="text" id="qr-scan-url" value="<?php echo esc_attr($scan_url); ?>" readonly style="width: 100%; padding: 8px 12px; font-family: monospace; font-size: 12px; margin-bottom: 10px; border: 1px solid #8c8f94; border-radius: 4px; background: #e9ecef; color: #495057; cursor: not-allowed;" data-default-url="<?php echo esc_attr(!empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : ''); ?>">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <button type="button" id="toggle-lock-btn" class="button" style="display: flex; align-items: center; justify-content: center; gap: 5px;">
+                                        <span class="dashicons dashicons-lock" style="margin-top: 3px;"></span> <span>Unlock to Edit</span>
+                                    </button>
+                                    <button type="button" id="reset-url-btn" class="button" style="display: flex; align-items: center; justify-content: center; gap: 5px;" disabled>
+                                        <span class="dashicons dashicons-image-rotate" style="margin-top: 3px;"></span> <span>Reset to Default</span>
+                                    </button>
+                                </div>
+                                <button type="button" id="save-custom-url-btn" class="button button-primary" style="width: 100%; margin-top: 8px; display: none;" data-product-id="<?php echo esc_attr($product_id); ?>">
+                                    <span class="dashicons dashicons-saved" style="vertical-align: text-top;"></span> Save & Regenerate QR
+                                </button>
+                                <p id="url-help-text" style="margin: 10px 0 0 0; font-size: 11px; color: #646970;"><em>Click "Unlock to Edit" to customize the QR code destination</em></p>
                             </div>
                             <?php endif; ?>
                         <?php else: ?>
@@ -656,6 +676,81 @@ class WC_QR_Admin {
                     }
                 });
             });
+            
+            $('#toggle-lock-btn').on('click', function() {
+                var btn = $(this);
+                var input = $('#qr-scan-url');
+                var saveBtn = $('#save-custom-url-btn');
+                var resetBtn = $('#reset-url-btn');
+                var helpText = $('#url-help-text');
+                var icon = btn.find('.dashicons');
+                var text = btn.find('span:last');
+                
+                if (input.prop('readonly')) {
+                    input.prop('readonly', false).css({'background': '#fff', 'cursor': 'text'});
+                    icon.removeClass('dashicons-lock').addClass('dashicons-unlock');
+                    text.text('Lock');
+                    saveBtn.show();
+                    resetBtn.prop('disabled', false);
+                    helpText.html('<em>Edit the URL above, then click "Save & Regenerate QR"</em>');
+                } else {
+                    input.prop('readonly', true).css({'background': '#e9ecef', 'cursor': 'not-allowed'});
+                    icon.removeClass('dashicons-unlock').addClass('dashicons-lock');
+                    text.text('Unlock to Edit');
+                    saveBtn.hide();
+                    resetBtn.prop('disabled', true);
+                    helpText.html('<em>Click "Unlock to Edit" to customize the QR code destination</em>');
+                }
+            });
+            
+            $('#reset-url-btn').on('click', function() {
+                var input = $('#qr-scan-url');
+                var defaultUrl = input.data('default-url');
+                if (confirm('Reset to default URL? This will use the SKU-based checkout URL.')) {
+                    input.val(defaultUrl);
+                }
+            });
+            
+            $('#save-custom-url-btn').on('click', function() {
+                var btn = $(this);
+                var customUrl = $('#qr-scan-url').val().trim();
+                var productId = btn.data('product-id');
+                var statusDiv = $('#qr-regenerate-status');
+                
+                if (!customUrl) {
+                    alert('Please enter a valid URL');
+                    return;
+                }
+                
+                btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="vertical-align: text-top; animation: rotation 1s linear infinite;"></span> Saving...');
+                statusDiv.html('<div style="background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 12px; border-radius: 4px; text-align: center;">⏳ Saving and regenerating QR code...</div>');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'wc_qr_save_custom_url',
+                        product_id: productId,
+                        custom_url: customUrl,
+                        nonce: '<?php echo wp_create_nonce('wc_qr_save_custom_url_' . $product_id); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            statusDiv.html('<div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 4px; text-align: center;">✓ ' + response.data.message + '</div>');
+                            setTimeout(function() {
+                                location.reload();
+                            }, 1000);
+                        } else {
+                            statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ ' + response.data.message + '</div>');
+                            btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align: text-top;"></span> Save & Regenerate QR');
+                        }
+                    },
+                    error: function() {
+                        statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ Error saving custom URL</div>');
+                        btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align: text-top;"></span> Save & Regenerate QR');
+                    }
+                });
+            });
         });
         </script>
         
@@ -710,10 +805,64 @@ class WC_QR_Admin {
             echo '<a href="' . esc_url($manager_url) . '" class="button button-primary">Manage QR & Generate Coupons</a>';
             echo '</p>';
             
+            // Get custom URL or default to SKU-based URL
+            $custom_url = get_post_meta($post->ID, '_qr_custom_url', true);
             $checkout_url = wc_get_checkout_url();
             if (!empty($product_sku)) {
-                $scan_url = add_query_arg('sku', urlencode($product_sku), $checkout_url);
-                echo '<p><small>Scans to: ' . esc_html($scan_url) . '</small></p>';
+                $default_url = add_query_arg('sku', urlencode($product_sku), $checkout_url);
+                $scan_url = !empty($custom_url) ? $custom_url : $default_url;
+                
+                echo '<div style="margin-top: 15px; padding: 10px; background: #f0f0f1; border-radius: 4px;">';
+                echo '<label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 12px;">Scans to:</label>';
+                echo '<input type="text" id="qr-custom-url-' . $post->ID . '" value="' . esc_attr($scan_url) . '" style="width: 100%; padding: 6px 8px; font-size: 11px; font-family: monospace; margin-bottom: 8px;" />';
+                echo '<button type="button" class="button button-small button-primary" id="save-qr-url-' . $post->ID . '" style="width: 100%;">Save & Regenerate QR</button>';
+                echo '<p style="margin: 8px 0 0 0; font-size: 10px; color: #646970;"><em>Changes will regenerate the QR code</em></p>';
+                echo '</div>';
+                
+                // Add inline script for this specific product
+                ?>
+                <script>
+                jQuery(document).ready(function($) {
+                    $('#save-qr-url-<?php echo $post->ID; ?>').on('click', function() {
+                        var btn = $(this);
+                        var customUrl = $('#qr-custom-url-<?php echo $post->ID; ?>').val().trim();
+                        
+                        if (!customUrl) {
+                            alert('Please enter a valid URL');
+                            return;
+                        }
+                        
+                        btn.prop('disabled', true).text('Saving...');
+                        
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'wc_qr_save_custom_url',
+                                product_id: <?php echo $post->ID; ?>,
+                                custom_url: customUrl,
+                                nonce: '<?php echo wp_create_nonce('wc_qr_save_custom_url_' . $post->ID); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    btn.text('Saved! Reloading...');
+                                    setTimeout(function() {
+                                        location.reload();
+                                    }, 500);
+                                } else {
+                                    alert('Error: ' + response.data.message);
+                                    btn.prop('disabled', false).text('Save & Regenerate QR');
+                                }
+                            },
+                            error: function() {
+                                alert('Error saving custom URL');
+                                btn.prop('disabled', false).text('Save & Regenerate QR');
+                            }
+                        });
+                    });
+                });
+                </script>
+                <?php
             }
             echo '</div>';
         } else {
@@ -874,23 +1023,82 @@ class WC_QR_Admin {
     }
     
     /**
+     * AJAX handler to save custom URL and regenerate QR
+     */
+    public function ajax_save_custom_url() {
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        $custom_url = isset($_POST['custom_url']) ? esc_url_raw($_POST['custom_url']) : '';
+        
+        // Verify nonce
+        if (!check_ajax_referer('wc_qr_save_custom_url_' . $product_id, 'nonce', false)) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
+        
+        if (!$product_id || !$custom_url) {
+            wp_send_json_error(array('message' => 'Invalid request'));
+            return;
+        }
+        
+        // Check permissions
+        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        // Save custom URL
+        update_post_meta($product_id, '_qr_custom_url', $custom_url);
+        
+        // Delete old QR code file
+        $old_qr_url = get_post_meta($product_id, '_qr_code_url', true);
+        if ($old_qr_url) {
+            $upload_dir = wp_upload_dir();
+            $old_file_path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $old_qr_url);
+            if (file_exists($old_file_path)) {
+                @unlink($old_file_path);
+            }
+        }
+        
+        delete_post_meta($product_id, '_qr_code_url');
+        
+        // Regenerate QR code with custom URL
+        $result = $this->generate_product_qr_code($product_id, $custom_url);
+        
+        if ($result) {
+            wp_send_json_success(array('message' => 'Custom URL saved and QR code regenerated!'));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to regenerate QR code'));
+        }
+    }
+    
+    /**
      * Generate QR code for a product
      */
-    private function generate_product_qr_code($product_id) {
+    private function generate_product_qr_code($product_id, $custom_url = '') {
         $product = wc_get_product($product_id);
         if (!$product) {
             return false;
         }
         
-        // Get product SKU
-        $product_sku = $product->get_sku();
-        if (empty($product_sku)) {
-            return false;
+        // Use custom URL if provided, otherwise check for saved custom URL, or use default SKU-based URL
+        if (!empty($custom_url)) {
+            $product_url = $custom_url;
+        } else {
+            $saved_custom_url = get_post_meta($product_id, '_qr_custom_url', true);
+            if (!empty($saved_custom_url)) {
+                $product_url = $saved_custom_url;
+            } else {
+                // Get product SKU
+                $product_sku = $product->get_sku();
+                if (empty($product_sku)) {
+                    return false;
+                }
+                
+                // Build checkout URL with SKU parameter
+                $checkout_url = wc_get_checkout_url();
+                $product_url = add_query_arg('sku', urlencode($product_sku), $checkout_url);
+            }
         }
-        
-        // Build checkout URL with SKU parameter
-        $checkout_url = wc_get_checkout_url();
-        $product_url = add_query_arg('sku', urlencode($product_sku), $checkout_url);
         
         // Delete old QR code file if exists
         $old_qr_url = get_post_meta($product_id, '_qr_code_url', true);
