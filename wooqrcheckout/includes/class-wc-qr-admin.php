@@ -24,6 +24,7 @@ class WC_QR_Admin {
         add_action('wp_ajax_wc_qr_regenerate', array($this, 'ajax_regenerate_qr'));
         add_action('wp_ajax_wc_qr_generate_single', array($this, 'ajax_generate_single_qr'));
         add_action('wp_ajax_wc_qr_save_custom_url', array($this, 'ajax_save_custom_url'));
+        add_action('wp_ajax_wc_qr_generate_coupons', array($this, 'ajax_generate_coupons'));
         add_action('wp_ajax_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         add_action('wp_ajax_nopriv_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         
@@ -585,45 +586,43 @@ class WC_QR_Admin {
         jQuery(document).ready(function($) {
             let generatedCodes = [];
             
-            // Generate coupon codes
             $('#generate-codes-btn').on('click', function() {
                 const count = parseInt($('#code-count').val()) || 10;
-                generatedCodes = [];
+                const btn = $(this);
+                const productId = <?php echo $product_id; ?>;
                 
-                function generateCode() {
-                    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-                    const numbers = '0123456789';
-                    
-                    let code = '';
-                    for (let i = 0; i < 3; i++) {
-                        code += letters.charAt(Math.floor(Math.random() * letters.length));
-                    }
-                    code += '-';
-                    for (let i = 0; i < 4; i++) {
-                        code += numbers.charAt(Math.floor(Math.random() * numbers.length));
-                    }
-                    code += '-';
-                    for (let i = 0; i < 3; i++) {
-                        code += letters.charAt(Math.floor(Math.random() * letters.length));
-                    }
-                    return code;
-                }
+                btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="animation: rotation 1s linear infinite; vertical-align: text-top;"></span> Generating...');
                 
-                for (let i = 0; i < count; i++) {
-                    generatedCodes.push(generateCode());
-                }
-                
-                // Display codes
-                let html = '';
-                generatedCodes.forEach(function(code, index) {
-                    html += '<div style="padding: 4px 0;">' + (index + 1) + '. ' + code + '</div>';
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'wc_qr_generate_coupons',
+                        product_id: productId,
+                        count: count,
+                        nonce: '<?php echo wp_create_nonce('wc_qr_generate_coupons_' . $product_id); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            generatedCodes = response.data.codes;
+                            let html = '';
+                            generatedCodes.forEach(function(code, index) {
+                                html += '<div style="padding: 4px 0;">' + (index + 1) + '. ' + code + '</div>';
+                            });
+                            $('#coupon-codes-list').html(html);
+                            $('#copy-codes-btn').prop('disabled', false);
+                        } else {
+                            alert('Error: ' + response.data.message);
+                        }
+                        btn.prop('disabled', false).html('<span class="dashicons dashicons-tickets-alt" style="vertical-align: text-top;"></span> Generate Codes');
+                    },
+                    error: function() {
+                        alert('Error generating coupons');
+                        btn.prop('disabled', false).html('<span class="dashicons dashicons-tickets-alt" style="vertical-align: text-top;"></span> Generate Codes');
+                    }
                 });
-                
-                $('#coupon-codes-list').html(html);
-                $('#copy-codes-btn').prop('disabled', false);
             });
             
-            // Copy all codes
             $('#copy-codes-btn').on('click', function() {
                 const text = generatedCodes.join('\n');
                 
@@ -1083,9 +1082,92 @@ class WC_QR_Admin {
         }
     }
     
-    /**
-     * Generate QR code for a product
-     */
+    public function ajax_generate_coupons() {
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        $count = isset($_POST['count']) ? intval($_POST['count']) : 10;
+        
+        if (!check_ajax_referer('wc_qr_generate_coupons_' . $product_id, 'nonce', false)) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
+        
+        if (!$product_id || $count < 1 || $count > 100) {
+            wp_send_json_error(array('message' => 'Invalid request'));
+            return;
+        }
+        
+        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(array('message' => 'Product not found'));
+            return;
+        }
+        
+        $codes = array();
+        for ($i = 0; $i < $count; $i++) {
+            $code = $this->generate_coupon_code();
+            $coupon_id = $this->create_woo_coupon($code, $product_id);
+            if ($coupon_id) {
+                $codes[] = $code;
+            }
+        }
+        
+        if (count($codes) > 0) {
+            wp_send_json_success(array('codes' => $codes, 'message' => count($codes) . ' coupons created'));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to create coupons'));
+        }
+    }
+    
+    private function generate_coupon_code() {
+        $letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        $numbers = '0123456789';
+        
+        $code = '';
+        for ($i = 0; $i < 3; $i++) {
+            $code .= $letters[rand(0, strlen($letters) - 1)];
+        }
+        $code .= '-';
+        for ($i = 0; $i < 4; $i++) {
+            $code .= $numbers[rand(0, strlen($numbers) - 1)];
+        }
+        $code .= '-';
+        for ($i = 0; $i < 3; $i++) {
+            $code .= $letters[rand(0, strlen($letters) - 1)];
+        }
+        
+        return $code;
+    }
+    
+    private function create_woo_coupon($code, $product_id) {
+        $coupon = array(
+            'post_title' => $code,
+            'post_content' => '',
+            'post_status' => 'publish',
+            'post_author' => get_current_user_id(),
+            'post_type' => 'shop_coupon'
+        );
+        
+        $coupon_id = wp_insert_post($coupon);
+        
+        if ($coupon_id) {
+            update_post_meta($coupon_id, 'discount_type', 'percent');
+            update_post_meta($coupon_id, 'coupon_amount', 100);
+            update_post_meta($coupon_id, 'individual_use', 'yes');
+            update_post_meta($coupon_id, 'product_ids', array($product_id));
+            update_post_meta($coupon_id, 'usage_limit', 1);
+            update_post_meta($coupon_id, 'usage_limit_per_user', 1);
+            update_post_meta($coupon_id, 'limit_usage_to_x_items', 1);
+            update_post_meta($coupon_id, 'free_shipping', 'no');
+        }
+        
+        return $coupon_id;
+    }
+    
     private function generate_product_qr_code($product_id, $custom_url = '') {
         $product = wc_get_product($product_id);
         if (!$product) {
