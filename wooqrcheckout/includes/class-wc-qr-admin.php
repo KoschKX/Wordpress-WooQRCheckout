@@ -153,7 +153,7 @@ class WC_QR_Admin {
             <div style="background: #fff; padding: 15px 20px; border: 1px solid #ccd0d4; margin-bottom: 20px;">
                 <form method="post" style="display: inline-block;">
                     <?php wp_nonce_field('wc_qr_generate_all', 'wc_qr_nonce'); ?>
-                                        <button type="button" id="generate-all-qr" class="button button-primary button-large" style="margin: 0 0 20px 0;">
+                    <button type="submit" name="generate_all_qr_codes" value="1" class="button button-primary button-large" style="margin: 0 0 20px 0;" onclick="return confirm('Generate QR codes for all products? This may take a moment.');">
                         <span class="dashicons dashicons-update" style="vertical-align: text-top;"></span> Generate QR Codes for All Products
                     </button>
                     <p class="description" style="margin: 10px 0 0 0;">This will generate QR codes for all WooCommerce products (including those without QR codes).</p>
@@ -1311,7 +1311,7 @@ class WC_QR_Admin {
         
         // Create upload directory if needed
         $upload_dir = wp_upload_dir();
-        $qr_dir = $upload_dir['basedir'] . '/sonaar-extended';
+        $qr_dir = $upload_dir['basedir'] . '/wooqrcheckout';
         if (!file_exists($qr_dir)) {
             wp_mkdir_p($qr_dir);
         }
@@ -1326,7 +1326,7 @@ class WC_QR_Admin {
         }
         
         // Store just the URL, don't create a media library attachment
-        $file_url = $upload_dir['baseurl'] . '/sonaar-extended/' . $filename;
+        $file_url = $upload_dir['baseurl'] . '/wooqrcheckout/' . $filename;
         
         // Save QR code URL in product meta (no attachment needed)
         update_post_meta($product_id, '_qr_code_url', $file_url);
