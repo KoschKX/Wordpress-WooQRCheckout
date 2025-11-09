@@ -150,8 +150,8 @@ class WC_QR_Admin {
             <div style="background: #fff; padding: 15px 20px; border: 1px solid #ccd0d4; margin-bottom: 20px;">
                 <form method="post" style="display: inline-block;">
                     <?php wp_nonce_field('wc_qr_generate_all', 'wc_qr_nonce'); ?>
-                    <button type="submit" name="generate_all_qr_codes" class="button button-primary button-large">
-                        <span class="dashicons dashicons-update" style="margin-top: 3px;"></span> Generate QR Codes for All Products
+                                        <button type="button" id="generate-all-qr" class="button button-primary button-large" style="margin: 0 0 20px 0;">
+                        <span class="dashicons dashicons-update" style="vertical-align: text-top;"></span> Generate QR Codes for All Products
                     </button>
                     <p class="description" style="margin: 10px 0 0 0;">This will generate QR codes for all WooCommerce products (including those without QR codes).</p>
                 </form>
@@ -491,10 +491,10 @@ class WC_QR_Admin {
                             
                             <p style="text-align: center;">
                                 <a href="<?php echo esc_url($qr_url); ?>" class="button button-primary button-large" download="qr-<?php echo esc_attr($product_sku); ?>.svg" style="margin: 5px;">
-                                    <span class="dashicons dashicons-download" style="margin-top: 3px;"></span> Download SVG
+                                    <span class="dashicons dashicons-download" style="vertical-align: text-top;"></span> Download SVG
                                 </a>
                                 <button type="button" id="regenerate-qr-btn" class="button button-secondary button-large" style="margin: 5px;" data-product-id="<?php echo esc_attr($product_id); ?>">
-                                    <span class="dashicons dashicons-update" style="margin-top: 3px;"></span> Regenerate QR Code
+                                    <span class="dashicons dashicons-update" style="vertical-align: text-top;"></span> Regenerate QR Code
                                 </button>
                             </p>
                             
@@ -531,10 +531,10 @@ class WC_QR_Admin {
                         
                         <p>
                             <button type="button" id="generate-codes-btn" class="button button-primary button-large" style="margin-right: 10px;">
-                                <span class="dashicons dashicons-tickets-alt" style="margin-top: 3px;"></span> Generate Codes
+                                <span class="dashicons dashicons-tickets-alt" style="vertical-align: text-top;"></span> Generate Codes
                             </button>
                             <button type="button" id="copy-codes-btn" class="button button-secondary button-large" disabled>
-                                <span class="dashicons dashicons-clipboard" style="margin-top: 3px;"></span> Copy All
+                                <span class="dashicons dashicons-clipboard" style="vertical-align: text-top;"></span> Copy All
                             </button>
                         </p>
                         
@@ -611,7 +611,7 @@ class WC_QR_Admin {
                 
                 // Show feedback
                 const originalText = $(this).html();
-                $(this).html('<span class="dashicons dashicons-yes" style="margin-top: 3px;"></span> Copied!');
+                $(this).html('<span class="dashicons dashicons-yes" style="vertical-align: text-top;"></span> Copied!');
                 setTimeout(() => {
                     $(this).html(originalText);
                 }, 2000);
@@ -627,7 +627,7 @@ class WC_QR_Admin {
                     return;
                 }
                 
-                btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="margin-top: 3px; animation: rotation 1s linear infinite;"></span> Regenerating...');
+                btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="vertical-align: text-top; animation: rotation 1s linear infinite;"></span> Regenerating...');
                 statusDiv.html('<div style="background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 12px; border-radius: 4px; text-align: center;">⏳ Regenerating QR code...</div>');
                 
                 $.ajax({
@@ -647,12 +647,12 @@ class WC_QR_Admin {
                             }, 1000);
                         } else {
                             statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ ' + response.data.message + '</div>');
-                            btn.prop('disabled', false).html('<span class="dashicons dashicons-update" style="margin-top: 3px;"></span> Regenerate QR Code');
+                            btn.prop('disabled', false).html('<span class="dashicons dashicons-update" style="vertical-align: text-top;"></span> Regenerate QR Code');
                         }
                     },
                     error: function() {
                         statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ Error regenerating QR code</div>');
-                        btn.prop('disabled', false).html('<span class="dashicons dashicons-update" style="margin-top: 3px;"></span> Regenerate QR Code');
+                        btn.prop('disabled', false).html('<span class="dashicons dashicons-update" style="vertical-align: text-top;"></span> Regenerate QR Code');
                     }
                 });
             });
