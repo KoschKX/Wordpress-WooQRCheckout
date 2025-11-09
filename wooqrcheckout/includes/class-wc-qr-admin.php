@@ -25,6 +25,7 @@ class WC_QR_Admin {
         add_action('wp_ajax_wc_qr_generate_single', array($this, 'ajax_generate_single_qr'));
         add_action('wp_ajax_wc_qr_save_custom_url', array($this, 'ajax_save_custom_url'));
         add_action('wp_ajax_wc_qr_generate_coupons', array($this, 'ajax_generate_coupons'));
+        add_action('wp_ajax_wc_qr_delete_coupon', array($this, 'ajax_delete_coupon'));
         add_action('wp_ajax_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         add_action('wp_ajax_nopriv_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         
@@ -543,10 +544,52 @@ class WC_QR_Admin {
                         
                         <p>Generate unique coupon codes that customers will enter at checkout to complete their purchase and receive the download.</p>
                         
+                        <?php
+                        $existing_coupons = $this->get_product_coupons($product_id);
+                        if (!empty($existing_coupons)):
+                        ?>
+                        <div style="margin: 0 0 20px 0;">
+                            <h3 style="margin: 0 0 10px 0; font-size: 14px;">Existing Coupons:</h3>
+                            <div style="background: #fff; border: 1px solid #ddd; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <thead style="background: #f9f9f9; position: sticky; top: 0;">
+                                        <tr>
+                                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; font-size: 12px;">Code</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd; font-size: 12px;">Status</th>
+                                            <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd; font-size: 12px; width: 60px;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($existing_coupons as $coupon): ?>
+                                        <tr class="coupon-row" data-coupon-id="<?php echo esc_attr($coupon['id']); ?>">
+                                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-family: monospace; font-size: 13px;"><?php echo esc_html($coupon['code']); ?></td>
+                                            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">
+                                                <?php if ($coupon['status'] === 'used'): ?>
+                                                    <span style="color: #dc3232; font-size: 11px;">✗ Used</span>
+                                                <?php elseif ($coupon['status'] === 'expired'): ?>
+                                                    <span style="color: #999; font-size: 11px;">⊘ Expired</span>
+                                                <?php else: ?>
+                                                    <span style="color: #46b450; font-size: 11px;">✓ Active</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">
+                                                <button type="button" class="delete-coupon-btn" data-coupon-id="<?php echo esc_attr($coupon['id']); ?>" data-code="<?php echo esc_attr($coupon['code']); ?>" style="background: none; border: none; color: #dc3232; cursor: pointer; padding: 4px; font-size: 16px;" title="Delete coupon">
+                                                    <span class="dashicons dashicons-trash"></span>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p style="margin: 8px 0 0 0; font-size: 11px; color: #646970;"><em><?php echo count($existing_coupons); ?> total coupon(s)</em></p>
+                        </div>
+                        <?php endif; ?>
+                        
                         <div style="margin: 20px 0;">
-                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Generated Codes:</label>
-                            <div id="coupon-codes-list" style="background: #f9f9f9; border: 1px solid #ddd; padding: 15px; min-height: 200px; max-height: 400px; overflow-y: auto; border-radius: 4px; font-family: monospace; font-size: 14px; line-height: 2;">
-                                <em style="color: #646970; font-family: system-ui;">Click "Generate Codes" to create unique coupon codes...</em>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Generate New Codes:</label>
+                            <div id="coupon-codes-list" style="background: #f9f9f9; border: 1px solid #ddd; padding: 15px; min-height: 100px; max-height: 200px; overflow-y: auto; border-radius: 4px; font-family: monospace; font-size: 14px; line-height: 2;">
+                                <em style="color: #646970; font-family: system-ui;">Click "Generate Codes" to create new unique coupon codes...</em>
                             </div>
                         </div>
                         
@@ -565,7 +608,7 @@ class WC_QR_Admin {
                         </p>
                         
                         <div style="background: #f0f6fc; border-left: 4px solid #0073aa; padding: 12px; margin-top: 20px;">
-                            <p style="margin: 0; font-size: 13px;"><strong>Note:</strong> These codes are randomly generated for printing. They must be validated by your system at checkout.</p>
+                            <p style="margin: 0; font-size: 13px;"><strong>Note:</strong> Generated coupons are automatically created in WooCommerce and can only be used once per code.</p>
                         </div>
                     </div>
                     
@@ -611,6 +654,9 @@ class WC_QR_Admin {
                             });
                             $('#coupon-codes-list').html(html);
                             $('#copy-codes-btn').prop('disabled', false);
+                            setTimeout(function() {
+                                location.reload();
+                            }, 2000);
                         } else {
                             alert('Error: ' + response.data.message);
                         }
@@ -641,7 +687,43 @@ class WC_QR_Admin {
                 }, 2000);
             });
             
-            // Regenerate QR code
+            $('.delete-coupon-btn').on('click', function() {
+                var btn = $(this);
+                var couponId = btn.data('coupon-id');
+                var code = btn.data('code');
+                var row = btn.closest('tr');
+                
+                if (!confirm('Delete coupon "' + code + '"? This cannot be undone.')) {
+                    return;
+                }
+                
+                btn.prop('disabled', true).css('opacity', '0.5');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'wc_qr_delete_coupon',
+                        coupon_id: couponId,
+                        nonce: '<?php echo wp_create_nonce('wc_qr_delete_coupon'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            row.fadeOut(300, function() {
+                                $(this).remove();
+                            });
+                        } else {
+                            alert('Error: ' + response.data.message);
+                            btn.prop('disabled', false).css('opacity', '1');
+                        }
+                    },
+                    error: function() {
+                        alert('Error deleting coupon');
+                        btn.prop('disabled', false).css('opacity', '1');
+                    }
+                });
+            });
+            
             $('#regenerate-qr-btn').on('click', function() {
                 var btn = $(this);
                 var productId = btn.data('product-id');
@@ -809,72 +891,12 @@ class WC_QR_Admin {
             $manager_url = admin_url('admin.php?page=wc-qr-code-details&product_id=' . $post->ID);
             echo '<div style="text-align: center;">';
             echo '<a href="' . esc_url($manager_url) . '" style="display: inline-block; border: 2px solid #0073aa; border-radius: 4px; padding: 10px; background: #fff; transition: all 0.2s;" onmouseover="this.style.borderColor=\'#005a87\'; this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.15)\';" onmouseout="this.style.borderColor=\'#0073aa\'; this.style.boxShadow=\'none\';">';
-            $qr_url_nocache = add_query_arg('t', time(), $qr_url); // prevent caching
-            echo '<img src="' . esc_url($qr_url_nocache) . '" alt="QR Code" style="max-width: calc(100% - 20px); height: auto; display: block;">';
+            $qr_url_nocache = add_query_arg('t', time(), $qr_url);
+            echo '<img src="' . esc_url($qr_url_nocache) . '" alt="QR Code" style="max-width: 100%; height: auto; display: block;">';
             echo '</a>';
-            echo '<p style="margin-top: 10px;">';
+            echo '<p style="display: none; margin-top: 10px;">';
             echo '<a href="' . esc_url($manager_url) . '" class="button button-primary">Manage QR & Generate Coupons</a>';
             echo '</p>';
-            
-            // Get custom URL or default to SKU-based URL
-            $custom_url = get_post_meta($post->ID, '_qr_custom_url', true);
-            $checkout_url = wc_get_checkout_url();
-            if (!empty($product_sku)) {
-                $default_url = add_query_arg('sku', urlencode($product_sku), $checkout_url);
-                $scan_url = !empty($custom_url) ? $custom_url : $default_url;
-                
-                echo '<div style="margin-top: 15px; padding: 10px; background: #f0f0f1; border-radius: 4px;">';
-                echo '<label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 12px;">Scans to:</label>';
-                echo '<input type="text" id="qr-custom-url-' . $post->ID . '" value="' . esc_attr($scan_url) . '" style="width: 100%; padding: 6px 8px; font-size: 11px; font-family: monospace; margin-bottom: 8px;" />';
-                echo '<button type="button" class="button button-small button-primary" id="save-qr-url-' . $post->ID . '" style="width: 100%;">Save & Regenerate QR</button>';
-                echo '<p style="margin: 8px 0 0 0; font-size: 10px; color: #646970;"><em>Changes will regenerate the QR code</em></p>';
-                echo '</div>';
-                
-                // Add inline script for this specific product
-                ?>
-                <script>
-                jQuery(document).ready(function($) {
-                    $('#save-qr-url-<?php echo $post->ID; ?>').on('click', function() {
-                        var btn = $(this);
-                        var customUrl = $('#qr-custom-url-<?php echo $post->ID; ?>').val().trim();
-                        
-                        if (!customUrl) {
-                            alert('Please enter a valid URL');
-                            return;
-                        }
-                        
-                        btn.prop('disabled', true).text('Saving...');
-                        
-                        $.ajax({
-                            url: ajaxurl,
-                            type: 'POST',
-                            data: {
-                                action: 'wc_qr_save_custom_url',
-                                product_id: <?php echo $post->ID; ?>,
-                                custom_url: customUrl,
-                                nonce: '<?php echo wp_create_nonce('wc_qr_save_custom_url_' . $post->ID); ?>'
-                            },
-                            success: function(response) {
-                                if (response.success) {
-                                    btn.text('Saved! Reloading...');
-                                    setTimeout(function() {
-                                        location.reload();
-                                    }, 500);
-                                } else {
-                                    alert('Error: ' + response.data.message);
-                                    btn.prop('disabled', false).text('Save & Regenerate QR');
-                                }
-                            },
-                            error: function() {
-                                alert('Error saving custom URL');
-                                btn.prop('disabled', false).text('Save & Regenerate QR');
-                            }
-                        });
-                    });
-                });
-                </script>
-                <?php
-            }
             echo '</div>';
         } else {
             echo '<p>No QR code set for this product.</p>';
@@ -1166,6 +1188,71 @@ class WC_QR_Admin {
         }
         
         return $coupon_id;
+    }
+    
+    public function ajax_delete_coupon() {
+        $coupon_id = isset($_POST['coupon_id']) ? intval($_POST['coupon_id']) : 0;
+        
+        if (!check_ajax_referer('wc_qr_delete_coupon', 'nonce', false)) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
+        
+        if (!$coupon_id) {
+            wp_send_json_error(array('message' => 'Invalid coupon ID'));
+            return;
+        }
+        
+        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        $result = wp_delete_post($coupon_id, true);
+        
+        if ($result) {
+            wp_send_json_success(array('message' => 'Coupon deleted'));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to delete coupon'));
+        }
+    }
+    
+    private function get_product_coupons($product_id) {
+        global $wpdb;
+        
+        $coupons = array();
+        
+        $query = "SELECT p.ID, p.post_title 
+                  FROM {$wpdb->posts} p
+                  INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+                  WHERE p.post_type = 'shop_coupon'
+                  AND p.post_status = 'publish'
+                  AND pm.meta_key = 'product_ids'
+                  AND pm.meta_value LIKE %s
+                  ORDER BY p.post_date DESC";
+        
+        $results = $wpdb->get_results($wpdb->prepare($query, '%' . $wpdb->esc_like($product_id) . '%'));
+        
+        foreach ($results as $result) {
+            $usage_count = get_post_meta($result->ID, 'usage_count', true);
+            $usage_limit = get_post_meta($result->ID, 'usage_limit', true);
+            $expiry_date = get_post_meta($result->ID, 'date_expires', true);
+            
+            $status = 'active';
+            if ($usage_count && $usage_limit && $usage_count >= $usage_limit) {
+                $status = 'used';
+            } elseif ($expiry_date && $expiry_date < time()) {
+                $status = 'expired';
+            }
+            
+            $coupons[] = array(
+                'id' => $result->ID,
+                'code' => $result->post_title,
+                'status' => $status
+            );
+        }
+        
+        return $coupons;
     }
     
     private function generate_product_qr_code($product_id, $custom_url = '') {
