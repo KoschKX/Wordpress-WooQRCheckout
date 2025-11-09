@@ -509,7 +509,12 @@ class WC_QR_Admin {
                             <?php if ($scan_url): ?>
                             <div style="background: #f0f0f1; padding: 15px; border-radius: 4px; margin-top: 20px;">
                                 <label for="qr-scan-url" style="display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: #1d2327;">Scans to:</label>
-                                <input type="text" id="qr-scan-url" value="<?php echo esc_attr($scan_url); ?>" readonly style="width: 100%; padding: 8px 12px; font-family: monospace; font-size: 12px; margin-bottom: 10px; border: 1px solid #8c8f94; border-radius: 4px; background: #e9ecef; color: #495057; cursor: not-allowed;" data-default-url="<?php echo esc_attr(!empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : ''); ?>">
+                                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                                    <input type="text" id="qr-scan-url" value="<?php echo esc_attr($scan_url); ?>" readonly style="flex: 1; padding: 8px 12px; font-family: monospace; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; background: #e9ecef; color: #495057; cursor: not-allowed;" data-default-url="<?php echo esc_attr(!empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : ''); ?>">
+                                    <button type="button" id="open-url-btn" class="button" style="padding: 0 12px;" title="Open URL in new tab">
+                                        <span class="dashicons dashicons-external" style="margin-top: 3px;"></span>
+                                    </button>
+                                </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                     <button type="button" id="toggle-lock-btn" class="button" style="display: flex; align-items: center; justify-content: center; gap: 5px;">
                                         <span class="dashicons dashicons-lock" style="margin-top: 3px;"></span> <span>Unlock to Edit</span>
@@ -675,6 +680,13 @@ class WC_QR_Admin {
                         btn.prop('disabled', false).html('<span class="dashicons dashicons-update" style="vertical-align: text-top;"></span> Regenerate QR Code');
                     }
                 });
+            });
+            
+            $('#open-url-btn').on('click', function() {
+                var url = $('#qr-scan-url').val().trim();
+                if (url) {
+                    window.open(url, '_blank');
+                }
             });
             
             $('#toggle-lock-btn').on('click', function() {
