@@ -512,9 +512,34 @@ class WC_QR_Admin {
                             <div style="background: #f0f0f1; padding: 15px; border-radius: 4px; margin-top: 20px;">
                                 <label for="qr-scan-url" style="display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: #1d2327;">Scans to:</label>
                                 <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-                                    <input type="text" id="qr-scan-url" value="<?php echo esc_attr($scan_url); ?>" readonly style="flex: 1; padding: 8px 12px; font-family: monospace; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; background: #e9ecef; color: #495057; cursor: not-allowed;" data-default-url="<?php echo esc_attr(!empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : ''); ?>">
+                                    <input type="text" id="qr-scan-url" value="<?php echo esc_attr($scan_url); ?>" readonly style="flex: 1; width: 0; padding: 8px 12px; font-family: monospace; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; background: #e9ecef; color: #495057; cursor: not-allowed; box-sizing: border-box;" data-default-url="<?php echo esc_attr(!empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : ''); ?>" data-checkout-url="<?php echo esc_attr($checkout_url); ?>">
+                                    
+                                    <select id="sku-select" style="flex: 1; width: 0; min-width: 0; padding: 8px 12px; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; display: none; box-sizing: border-box;">
+                                        <option value="">-- Select a product --</option>
+                                        <?php
+                                        $args = array(
+                                            'post_type' => 'product',
+                                            'posts_per_page' => -1,
+                                            'orderby' => 'title',
+                                            'order' => 'ASC',
+                                            'post_status' => 'publish'
+                                        );
+                                        $products = get_posts($args);
+                                        foreach ($products as $prod) {
+                                            $prod_obj = wc_get_product($prod->ID);
+                                            $prod_sku = $prod_obj->get_sku();
+                                            if (!empty($prod_sku)) {
+                                                echo '<option value="' . esc_attr($prod_sku) . '">' . esc_html($prod->post_title) . ' (SKU: ' . esc_html($prod_sku) . ')</option>';
+                                            }
+                                        }
+                                        ?>
+                                    </select>
+                                    
                                     <button type="button" id="open-url-btn" class="button" style="padding: 0 12px;" title="Open URL in new tab">
-                                        <span class="dashicons dashicons-external" style="margin-top: 3px;"></span>
+                                        <span class="dashicons dashicons-external" style="margin-top: 3px; vertical-align: text-bottom;"></span>
+                                    </button>
+                                    <button type="button" id="select-sku-btn" class="button" style="padding: 0 12px; display: none;" title="Select Product SKU">
+                                        <span class="dashicons dashicons-list-view" style="margin-top: 3px; vertical-align: text-bottom;"></span>
                                     </button>
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -525,9 +550,6 @@ class WC_QR_Admin {
                                         <span class="dashicons dashicons-image-rotate" style="margin-top: 3px;"></span> <span>Reset to Default</span>
                                     </button>
                                 </div>
-                                <button type="button" id="save-custom-url-btn" class="button button-primary" style="width: 100%; margin-top: 8px; display: none;" data-product-id="<?php echo esc_attr($product_id); ?>">
-                                    <span class="dashicons dashicons-saved" style="vertical-align: text-top;"></span> Save & Regenerate QR
-                                </button>
                                 <p id="url-help-text" style="margin: 10px 0 0 0; font-size: 11px; color: #646970;"><em>Click "Unlock to Edit" to customize the QR code destination</em></p>
                             </div>
                             <?php endif; ?>
@@ -770,29 +792,82 @@ class WC_QR_Admin {
                 }
             });
             
+            var originalUrl = $('#qr-scan-url').val();
+            
             $('#toggle-lock-btn').on('click', function() {
                 var btn = $(this);
                 var input = $('#qr-scan-url');
-                var saveBtn = $('#save-custom-url-btn');
                 var resetBtn = $('#reset-url-btn');
                 var helpText = $('#url-help-text');
                 var icon = btn.find('.dashicons');
                 var text = btn.find('span:last');
+                var openUrlBtn = $('#open-url-btn');
+                var selectSkuBtn = $('#select-sku-btn');
+                var skuSelect = $('#sku-select');
+                var statusDiv = $('#qr-regenerate-status');
+                var productId = <?php echo $product_id; ?>;
                 
                 if (input.prop('readonly')) {
+                    originalUrl = input.val();
                     input.prop('readonly', false).css({'background': '#fff', 'cursor': 'text'});
                     icon.removeClass('dashicons-lock').addClass('dashicons-unlock');
                     text.text('Lock');
-                    saveBtn.show();
                     resetBtn.prop('disabled', false);
-                    helpText.html('<em>Edit the URL above, then click "Save & Regenerate QR"</em>');
+                    openUrlBtn.hide();
+                    selectSkuBtn.show();
+                    helpText.html('<em>Edit the URL above or select a product, then click "Lock" to save</em>');
                 } else {
-                    input.prop('readonly', true).css({'background': '#e9ecef', 'cursor': 'not-allowed'});
-                    icon.removeClass('dashicons-unlock').addClass('dashicons-lock');
-                    text.text('Unlock to Edit');
-                    saveBtn.hide();
-                    resetBtn.prop('disabled', true);
-                    helpText.html('<em>Click "Unlock to Edit" to customize the QR code destination</em>');
+                    var currentUrl = input.val().trim();
+                    
+                    if (currentUrl !== originalUrl) {
+                        btn.prop('disabled', true);
+                        icon.removeClass('dashicons-unlock').addClass('dashicons-update');
+                        text.text('Saving...');
+                        statusDiv.html('<div style="background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 12px; border-radius: 4px; text-align: center;">⏳ Saving and regenerating QR code...</div>');
+                        
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'wc_qr_save_custom_url',
+                                product_id: productId,
+                                custom_url: currentUrl,
+                                nonce: '<?php echo wp_create_nonce('wc_qr_save_custom_url_' . $product_id); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    statusDiv.html('<div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 4px; text-align: center;">✓ ' + response.data.message + '</div>');
+                                    setTimeout(function() {
+                                        location.reload();
+                                    }, 1000);
+                                } else {
+                                    statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ ' + response.data.message + '</div>');
+                                    btn.prop('disabled', false);
+                                    icon.removeClass('dashicons-update').addClass('dashicons-unlock');
+                                    text.text('Lock');
+                                }
+                            },
+                            error: function() {
+                                statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ Error saving custom URL</div>');
+                                btn.prop('disabled', false);
+                                icon.removeClass('dashicons-update').addClass('dashicons-unlock');
+                                text.text('Lock');
+                            }
+                        });
+                    } else {
+                        input.val(originalUrl);
+                        input.prop('readonly', true).css({'background': '#e9ecef', 'cursor': 'not-allowed'});
+                        icon.removeClass('dashicons-unlock').addClass('dashicons-lock');
+                        text.text('Unlock to Edit');
+                        resetBtn.prop('disabled', true);
+                        openUrlBtn.show();
+                        selectSkuBtn.hide();
+                        if (skuSelect.is(':visible')) {
+                            skuSelect.css('display', 'none');
+                            input.css('display', 'block');
+                        }
+                        helpText.html('<em>Click "Unlock to Edit" to customize the QR code destination</em>');
+                    }
                 }
             });
             
@@ -804,45 +879,34 @@ class WC_QR_Admin {
                 }
             });
             
-            $('#save-custom-url-btn').on('click', function() {
-                var btn = $(this);
-                var customUrl = $('#qr-scan-url').val().trim();
-                var productId = btn.data('product-id');
-                var statusDiv = $('#qr-regenerate-status');
+            $('#select-sku-btn').on('click', function() {
+                var input = $('#qr-scan-url');
+                var skuSelect = $('#sku-select');
                 
-                if (!customUrl) {
-                    alert('Please enter a valid URL');
-                    return;
+                if (skuSelect.is(':visible')) {
+                    skuSelect.css('display', 'none');
+                    input.css('display', 'block');
+                    skuSelect.val('');
+                } else {
+                    input.css('display', 'none');
+                    skuSelect.css('display', 'block');
+                    skuSelect.focus();
                 }
+            });
+            
+            $('#sku-select').on('change', function() {
+                var selectedSku = $(this).val();
+                var input = $('#qr-scan-url');
+                var skuSelect = $(this);
+                var checkoutUrl = input.data('checkout-url');
                 
-                btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="vertical-align: text-top; animation: rotation 1s linear infinite;"></span> Saving...');
-                statusDiv.html('<div style="background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 12px; border-radius: 4px; text-align: center;">⏳ Saving and regenerating QR code...</div>');
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'wc_qr_save_custom_url',
-                        product_id: productId,
-                        custom_url: customUrl,
-                        nonce: '<?php echo wp_create_nonce('wc_qr_save_custom_url_' . $product_id); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            statusDiv.html('<div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 4px; text-align: center;">✓ ' + response.data.message + '</div>');
-                            setTimeout(function() {
-                                location.reload();
-                            }, 1000);
-                        } else {
-                            statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ ' + response.data.message + '</div>');
-                            btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align: text-top;"></span> Save & Regenerate QR');
-                        }
-                    },
-                    error: function() {
-                        statusDiv.html('<div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; text-align: center;">✗ Error saving custom URL</div>');
-                        btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align: text-top;"></span> Save & Regenerate QR');
-                    }
-                });
+                if (selectedSku) {
+                    var newUrl = checkoutUrl + '?sku=' + encodeURIComponent(selectedSku);
+                    input.val(newUrl);
+                    skuSelect.css('display', 'none');
+                    input.css('display', 'block');
+                    skuSelect.val('');
+                }
             });
         });
         </script>
