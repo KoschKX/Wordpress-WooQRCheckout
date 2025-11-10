@@ -25,6 +25,7 @@ class WC_QR_Admin {
         add_action('wp_ajax_wc_qr_generate_single', array($this, 'ajax_generate_single_qr'));
         add_action('wp_ajax_wc_qr_save_custom_url', array($this, 'ajax_save_custom_url'));
         add_action('wp_ajax_wc_qr_generate_coupons', array($this, 'ajax_generate_coupons'));
+        add_action('wp_ajax_wc_qr_add_manual_coupon', array($this, 'ajax_add_manual_coupon'));
         add_action('wp_ajax_wc_qr_delete_coupon', array($this, 'ajax_delete_coupon'));
         add_action('wp_ajax_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
         add_action('wp_ajax_nopriv_wc_qr_verify_download_code', array($this, 'ajax_verify_download_code'));
@@ -514,7 +515,7 @@ class WC_QR_Admin {
                                 <div style="display: flex; gap: 8px; margin-bottom: 10px;">
                                     <input type="text" id="qr-scan-url" value="<?php echo esc_attr($scan_url); ?>" readonly style="flex: 1; width: 0; padding: 8px 12px; font-family: monospace; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; background: #e9ecef; color: #495057; cursor: not-allowed; box-sizing: border-box;" data-default-url="<?php echo esc_attr(!empty($product_sku) ? add_query_arg('sku', urlencode($product_sku), $checkout_url) : ''); ?>" data-checkout-url="<?php echo esc_attr($checkout_url); ?>">
                                     
-                                    <select id="sku-select" style="flex: 1; width: 0; min-width: 0; padding: 8px 12px; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; display: none; box-sizing: border-box;">
+                                    <select id="sku-select" style="flex: 1; width: 0; max-width: 100%; min-width: 0; padding: 8px 12px; font-size: 12px; border: 1px solid #8c8f94; border-radius: 4px; display: none; box-sizing: border-box;">
                                         <option value="">-- Select a product --</option>
                                         <?php
                                         $args = array(
@@ -609,13 +610,6 @@ class WC_QR_Admin {
                         <?php endif; ?>
                         
                         <div style="margin: 20px 0;">
-                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Generate New Codes:</label>
-                            <div id="coupon-codes-list" style="background: #f9f9f9; border: 1px solid #ddd; padding: 15px; min-height: 100px; max-height: 200px; overflow-y: auto; border-radius: 4px; font-family: monospace; font-size: 14px; line-height: 2;">
-                                <em style="color: #646970; font-family: system-ui;">Click "Generate Codes" to create new unique coupon codes...</em>
-                            </div>
-                        </div>
-                        
-                        <div style="margin: 20px 0;">
                             <label for="code-count" style="display: block; margin-bottom: 5px; font-weight: 600;">Number of codes to generate:</label>
                             <input type="number" id="code-count" value="10" min="1" max="100" style="width: 100px; padding: 6px 10px;">
                         </div>
@@ -624,10 +618,30 @@ class WC_QR_Admin {
                             <button type="button" id="generate-codes-btn" class="button button-primary button-large" style="margin-right: 10px;">
                                 <span class="dashicons dashicons-tickets-alt" style="vertical-align: text-top;"></span> Generate Codes
                             </button>
-                            <button type="button" id="copy-codes-btn" class="button button-secondary button-large" disabled>
+                            <button type="button" id="copy-codes-btn" class="button button-secondary button-large" disabled style="margin-right: 10px;">
                                 <span class="dashicons dashicons-clipboard" style="vertical-align: text-top;"></span> Copy All
                             </button>
+                            <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="advanced-toggle" style="margin: 0;">
+                                <span style="font-weight: 600;">Advanced</span>
+                            </label>
                         </p>
+                        
+                        <div id="manual-code-section" style="display: none; margin: 20px 0; padding: 15px; background: #f0f0f1; border-radius: 4px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Add Manual Code:</label>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <div style="display: flex; gap: 4px; align-items: center;">
+                                    <input type="text" id="manual-code-1" maxlength="3" placeholder="XXX" style="width: 50px; padding: 6px 10px; text-align: center; text-transform: uppercase; font-family: monospace;">
+                                    <span style="color: #646970;">-</span>
+                                    <input type="text" id="manual-code-2" maxlength="4" placeholder="0000" pattern="[0-9]*" inputmode="numeric" style="width: 60px; padding: 6px 10px; text-align: center; font-family: monospace;">
+                                    <span style="color: #646970;">-</span>
+                                    <input type="text" id="manual-code-3" maxlength="3" placeholder="XXX" style="width: 50px; padding: 6px 10px; text-align: center; text-transform: uppercase; font-family: monospace;">
+                                </div>
+                                <button type="button" id="add-manual-code-btn" class="button button-secondary">
+                                    <span class="dashicons dashicons-plus-alt" style="vertical-align: text-top;"></span> Add Code
+                                </button>
+                            </div>
+                        </div>
                         
                         <div style="background: #f0f6fc; border-left: 4px solid #0073aa; padding: 12px; margin-top: 20px;">
                             <p style="margin: 0; font-size: 13px;"><strong>Note:</strong> Generated coupons are automatically created in WooCommerce and can only be used once per code.</p>
@@ -649,7 +663,86 @@ class WC_QR_Admin {
         
         <script>
         jQuery(document).ready(function($) {
-            let generatedCodes = [];
+            let generatedCodes = [
+                <?php 
+                if (!empty($existing_coupons)) {
+                    $codes = array_map(function($coupon) {
+                        return "'" . esc_js($coupon['code']) . "'";
+                    }, $existing_coupons);
+                    echo implode(', ', $codes);
+                }
+                ?>
+            ];
+            
+            if (generatedCodes.length > 0) {
+                $('#copy-codes-btn').prop('disabled', false);
+            }
+            
+            $('#advanced-toggle').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#manual-code-section').slideDown(200);
+                } else {
+                    $('#manual-code-section').slideUp(200);
+                }
+            });
+            
+            $('#manual-code-1, #manual-code-2, #manual-code-3').on('input', function() {
+                if ($(this).attr('id') === 'manual-code-2') {
+                    $(this).val($(this).val().replace(/[^0-9]/g, ''));
+                } else {
+                    $(this).val($(this).val().replace(/[^A-Za-z]/g, '').toUpperCase());
+                }
+                
+                if ($(this).val().length >= $(this).attr('maxlength')) {
+                    if ($(this).attr('id') === 'manual-code-1') {
+                        $('#manual-code-2').focus();
+                    } else if ($(this).attr('id') === 'manual-code-2') {
+                        $('#manual-code-3').focus();
+                    }
+                }
+            });
+            
+            $('#add-manual-code-btn').on('click', function() {
+                const part1 = $('#manual-code-1').val().trim();
+                const part2 = $('#manual-code-2').val().trim();
+                const part3 = $('#manual-code-3').val().trim();
+                const manualCode = (part1 + '-' + part2 + '-' + part3).toUpperCase();
+                const btn = $(this);
+                const productId = <?php echo $product_id; ?>;
+                
+                if (!part1 || !part2 || !part3) {
+                    alert('Please enter all three parts of the coupon code');
+                    return;
+                }
+                
+                btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="animation: rotation 1s linear infinite; vertical-align: text-top;"></span> Adding...');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'wc_qr_add_manual_coupon',
+                        product_id: productId,
+                        code: manualCode,
+                        nonce: '<?php echo wp_create_nonce('wc_qr_add_manual_coupon_' . $product_id); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $('#manual-code-1, #manual-code-2, #manual-code-3').val('');
+                            setTimeout(function() {
+                                location.reload();
+                            }, 1000);
+                        } else {
+                            alert('Error: ' + response.data.message);
+                            btn.prop('disabled', false).html('<span class="dashicons dashicons-plus-alt" style="vertical-align: text-top;"></span> Add Code');
+                        }
+                    },
+                    error: function() {
+                        alert('Error adding coupon');
+                        btn.prop('disabled', false).html('<span class="dashicons dashicons-plus-alt" style="vertical-align: text-top;"></span> Add Code');
+                    }
+                });
+            });
             
             $('#generate-codes-btn').on('click', function() {
                 const count = parseInt($('#code-count').val()) || 10;
@@ -670,11 +763,6 @@ class WC_QR_Admin {
                     success: function(response) {
                         if (response.success) {
                             generatedCodes = response.data.codes;
-                            let html = '';
-                            generatedCodes.forEach(function(code, index) {
-                                html += '<div style="padding: 4px 0;">' + (index + 1) + '. ' + code + '</div>';
-                            });
-                            $('#coupon-codes-list').html(html);
                             $('#copy-codes-btn').prop('disabled', false);
                             setTimeout(function() {
                                 location.reload();
@@ -692,16 +780,18 @@ class WC_QR_Admin {
             });
             
             $('#copy-codes-btn').on('click', function() {
+                if (generatedCodes.length === 0) {
+                    return;
+                }
+                
                 const text = generatedCodes.join('\n');
                 
-                // Create temporary textarea
                 const $temp = $('<textarea>');
                 $('body').append($temp);
                 $temp.val(text).select();
                 document.execCommand('copy');
                 $temp.remove();
                 
-                // Show feedback
                 const originalText = $(this).html();
                 $(this).html('<span class="dashicons dashicons-yes" style="vertical-align: text-top;"></span> Copied!');
                 setTimeout(() => {
@@ -714,10 +804,6 @@ class WC_QR_Admin {
                 var couponId = btn.data('coupon-id');
                 var code = btn.data('code');
                 var row = btn.closest('tr');
-                
-                if (!confirm('Delete coupon "' + code + '"? This cannot be undone.')) {
-                    return;
-                }
                 
                 btn.prop('disabled', true).css('opacity', '0.5');
                 
@@ -874,9 +960,7 @@ class WC_QR_Admin {
             $('#reset-url-btn').on('click', function() {
                 var input = $('#qr-scan-url');
                 var defaultUrl = input.data('default-url');
-                if (confirm('Reset to default URL? This will use the SKU-based checkout URL.')) {
-                    input.val(defaultUrl);
-                }
+                input.val(defaultUrl);
             });
             
             $('#select-sku-btn').on('click', function() {
@@ -1206,6 +1290,47 @@ class WC_QR_Admin {
             wp_send_json_success(array('codes' => $codes, 'message' => count($codes) . ' coupons created'));
         } else {
             wp_send_json_error(array('message' => 'Failed to create coupons'));
+        }
+    }
+    
+    public function ajax_add_manual_coupon() {
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        $code = isset($_POST['code']) ? strtoupper(sanitize_text_field($_POST['code'])) : '';
+        
+        if (!check_ajax_referer('wc_qr_add_manual_coupon_' . $product_id, 'nonce', false)) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
+        
+        if (!$product_id || !$code) {
+            wp_send_json_error(array('message' => 'Invalid request'));
+            return;
+        }
+        
+        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(array('message' => 'Product not found'));
+            return;
+        }
+        
+        // Check if coupon code already exists
+        $existing_coupon = get_page_by_title($code, OBJECT, 'shop_coupon');
+        if ($existing_coupon) {
+            wp_send_json_error(array('message' => 'Coupon code already exists'));
+            return;
+        }
+        
+        $coupon_id = $this->create_woo_coupon($code, $product_id);
+        
+        if ($coupon_id) {
+            wp_send_json_success(array('message' => 'Coupon added successfully'));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to create coupon'));
         }
     }
     
