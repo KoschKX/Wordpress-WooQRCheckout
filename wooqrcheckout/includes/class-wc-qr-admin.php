@@ -42,7 +42,11 @@ class WC_QR_Admin {
         
         // only on checkout page
         $request_uri = $_SERVER['REQUEST_URI'] ?? '';
-        if (strpos($request_uri, '/kasse') === false && strpos($request_uri, '/checkout') === false) {
+        if ($request_uri && (strpos($request_uri, '/kasse') === false && strpos($request_uri, '/checkout') === false)) {
+            return;
+        }
+        
+        if (!$request_uri) {
             return;
         }
         
@@ -75,8 +79,9 @@ class WC_QR_Admin {
         );
         
         // submenu for individual product qr management (hidden from menu)
+        // Using empty string instead of null to avoid WordPress path normalization issues
         add_submenu_page(
-            null,
+            '',
             'QR Code Details',
             'QR Code Details',
             'manage_options',

@@ -22,6 +22,7 @@ if (!defined('ABSPATH')) {
 
 // Define plugin constants
 define('WC_QR_VERSION', '1.0.0');
+define('WC_QR_PLUGIN_FILE', __FILE__);
 define('WC_QR_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WC_QR_PLUGIN_PATH', plugin_dir_path(__FILE__));
 
